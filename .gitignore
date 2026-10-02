@@ -1,0 +1,9 @@
+﻿node_modules/
+.env
+*.exe
+*.out
+*.log
+bin/
+dist/
+.vscode/
+.idea/
