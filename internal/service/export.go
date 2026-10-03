@@ -1,0 +1,19 @@
+package service
+
+import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"time"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/xuri/excelize/v2"
+)
+type ExportService struct { DB *pgxpool.Pool }
+func safeName(s string)string{s=strings.TrimSpace(s);s=strings.NewReplacer("..","_","/","_","\\","_",":","_").Replace(s);if s==""{return "unknown"};return s}
+func (s *ExportService) ExportSourceZip(ctx context.Context, examID uuid.UUID)([]byte,error){rows,e:=s.DB.Query(ctx,`SELECT u.student_id,q.ordinal,COALESCE(d.code,''),q.template_code,q.student_start_marker,q.student_end_marker FROM users u JOIN exam_participants ep ON ep.student_id=u.id LEFT JOIN drafts d ON d.exam_id=ep.exam_id AND d.student_id=ep.student_id AND d.question_id IN (SELECT id FROM questions WHERE exam_id=ep.exam_id) JOIN questions q ON q.exam_id=ep.exam_id AND (d.question_id=q.id OR d.question_id IS NULL) WHERE ep.exam_id=$1 ORDER BY u.student_id,q.ordinal`,examID);if e!=nil{return nil,e};defer rows.Close();var b bytes.Buffer;zw:=zip.NewWriter(&b);for rows.Next(){var sid string;var ordinal int;var code,tmpl,start,end string;if e=rows.Scan(&sid,&ordinal,&code,&tmpl,&start,&end);e!=nil{return nil,e};if tmpl!=""{i:=strings.Index(tmpl,start);if i>=0{j:=strings.Index(tmpl[i+len(start):],end);if j>=0{code=tmpl[i+len(start):i+len(start)+j]}}};name:=filepath.ToSlash(filepath.Join(safeName(sid),fmt.Sprintf("question-%02d.txt",ordinal)));w,e:=zw.Create(name);if e!=nil{return nil,e};if _,e=w.Write([]byte(code));e!=nil{return nil,e}};if e=rows.Err();e!=nil{return nil,e};if e=zw.Close();e!=nil{return nil,e};return b.Bytes(),nil}
+func (s *ExportService) ExportGradesExcel(ctx context.Context, examID uuid.UUID)([]byte,error){f:=excelize.NewFile();sheet:="Grades";f.SetSheetName("Sheet1",sheet);headers:=[]string{"Student ID","Name","Total Score","Per-question machine scores","Comment"};for i,h:=range headers{col,_:=excelize.ColumnNumberToName(i+1);f.SetCellValue(sheet,col+"1",h)};rows,e:=s.DB.Query(ctx,`SELECT u.student_id,u.full_name,COALESCE(es.score,0),COALESCE((SELECT jsonb_object_agg(jr.question_id::text,jr.score) FROM judge_results jr JOIN judge_tasks jt ON jt.id=jr.task_id JOIN submissions ss ON ss.id=jt.submission_id WHERE ss.exam_id=$1 AND ss.student_id=u.id),'{}'),COALESCE((SELECT reason FROM score_audit_logs l WHERE l.exam_id=$1 AND l.student_id=u.id ORDER BY created_at DESC LIMIT 1),'') FROM exam_participants ep JOIN users u ON u.id=ep.student_id LEFT JOIN exam_scores es ON es.exam_id=ep.exam_id AND es.student_id=ep.student_id WHERE ep.exam_id=$1 ORDER BY u.student_id`,examID);if e!=nil{return nil,e};defer rows.Close();r:=2;for rows.Next(){var id,name,comment,scores string;var score float64;if e=rows.Scan(&id,&name,&score,&scores,&comment);e!=nil{return nil,e};vals:=[]any{id,name,score,scores,comment};for i,v:=range vals{col,_:=excelize.ColumnNumberToName(i+1);f.SetCellValue(sheet,col+fmt.Sprint(r),v)};r++};var b bytes.Buffer;if e=f.Write(&b);e!=nil{return nil,e};return b.Bytes(),nil}
+func (s *ExportService) ExportScreenLogs(ctx context.Context, examID uuid.UUID)([]byte,error){f:=excelize.NewFile();sheet:="ScreenLogs";f.SetSheetName("Sheet1",sheet);for i,h:=range []string{"Student ID","Switched At","Duration MS","Event"}{col,_:=excelize.ColumnNumberToName(i+1);f.SetCellValue(sheet,col+"1",h)};rows,e:=s.DB.Query(ctx,`SELECT u.student_id,l.switched_at,l.duration_ms,l.metadata->>'event' FROM screen_switch_logs l JOIN users u ON u.id=l.student_id WHERE l.exam_id=$1 ORDER BY l.switched_at`,examID);if e!=nil{return nil,e};defer rows.Close();r:=2;for rows.Next(){var id,event string;var at time.Time;var d int;if e=rows.Scan(&id,&at,&d,&event);e!=nil{return nil,e};for i,v:=range []any{id,at,d,event}{col,_:=excelize.ColumnNumberToName(i+1);f.SetCellValue(sheet,col+fmt.Sprint(r),v)};r++};var b bytes.Buffer;if e=f.Write(&b);e!=nil{return nil,e};return b.Bytes(),nil}

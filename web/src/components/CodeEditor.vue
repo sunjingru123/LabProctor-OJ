@@ -1,0 +1,6 @@
+<script setup lang="ts">
+import { ref, watch, onBeforeUnmount } from 'vue'; import Editor from '@monaco-editor/vue';
+const props=defineProps<{modelValue:string;readonlyRanges?:Array<{start:number;end:number}>}>();const emit=defineEmits<{(e:'update:modelValue',v:string):void}>();const editor=ref<any>();
+function mount(e:any){editor.value=e;applyReadonly();e.onKeyDown((ev:any)=>{const line=e.getPosition()?.lineNumber||0;if((props.readonlyRanges||[]).some(r=>line>=r.start&&line<=r.end)){ev.preventDefault();ev.stopPropagation();}});}function applyReadonly(){if(!editor.value)return;const ranges=(props.readonlyRanges||[]).map(r=>({range:{startLineNumber:r.start,endLineNumber:r.end,startColumn:1,endColumn:1},options:{isWholeLine:true,description:'template',className:'template-line'}}));editor.value.createDecorationsCollection(ranges);}
+watch(()=>props.readonlyRanges,applyReadonly,{deep:true});onBeforeUnmount(()=>editor.value?.dispose());
+</script><template><Editor height="65vh" language="cpp" theme="vs-dark" :value="modelValue" :options="{automaticLayout:true,lineNumbers:'on',minimap:{enabled:false},tabSize:4}" @mount="mount" @update:modelValue="v=>emit('update:modelValue',v||'')" /></template>
