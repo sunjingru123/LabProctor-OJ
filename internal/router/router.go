@@ -1,0 +1,5 @@
+package router
+
+import("github.com/gin-gonic/gin";"github.com/sunjingru123/LabProctor-OJ/internal/handler";"github.com/sunjingru123/LabProctor-OJ/internal/middleware")
+type Deps struct{Auth middleware.Auth; Guard *middleware.ExamGuard; Student *handler.StudentExam; Teacher *handler.TeacherExam}
+func New(d Deps)*gin.Engine{r:=gin.New();r.Use(gin.Recovery());api:=r.Group("/api/v1",d.Auth.Require());student:=api.Group("/exams/:id",middleware.RequireRole("student"),d.Guard.Student());student.GET("",d.Student.Detail);student.GET("/questions/:qid/draft",d.Student.Draft);student.PUT("/questions/:qid/draft",d.Student.SaveDraft);student.POST("/questions/:qid/run-sample",d.Student.RunSample);student.POST("/submit",d.Student.Submit);student.POST("/anti-cheat/event",d.Student.AntiCheat);teacher:=api.Group("/teacher/exams",middleware.RequireRole("teacher","admin"));teacher.POST("",d.Teacher.Create);teacher.GET("/:id/dashboard",d.Teacher.Dashboard);teacher.POST("/:id/force-end",d.Teacher.ForceEnd);return r}
