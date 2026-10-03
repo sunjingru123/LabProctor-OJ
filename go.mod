@@ -12,3 +12,5 @@ require (
 	golang.org/x/oauth2 v0.24.0
 	github.com/xuri/excelize/v2 v2.9.0
 )
+
+replace github.com/rogpeppe/go-internal => github.com/rogpeppe/go-internal v1.13.1

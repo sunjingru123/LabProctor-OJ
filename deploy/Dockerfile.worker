@@ -1,20 +1,11 @@
 FROM docker.m.daocloud.io/library/golang:1.22-bookworm AS build
-ENV GOPROXY=https://goproxy.cn,direct
 WORKDIR /src
-COPY go.mod go.sum* ./
-RUN go mod download
+ENV GOPROXY=https://goproxy.cn,direct
 COPY . .
+RUN go mod tidy
 RUN CGO_ENABLED=0 go build -o /out/worker ./cmd/worker
-FROM docker.m.daocloud.io/library/debian:bookworm-slim
-RUN set -eux; \
-    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
-      sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources; \
-    fi; \
-    if [ -f /etc/apt/sources.list ]; then \
-      sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list; \
-    fi; \
-    apt-get update && apt-get install -y --no-install-recommends gcc g++ ca-certificates && rm -rf /var/lib/apt/lists/*
+FROM docker.m.daocloud.io/library/gcc:12-bookworm
 COPY --from=build /out/worker /worker
-RUN useradd -r -u 10001 judge
+RUN id -u judge >/dev/null 2>&1 || useradd -m -u 1000 judge
 USER judge
-ENTRYPOINT ["/worker"]
+CMD ["/worker"]
