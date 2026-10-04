@@ -29,7 +29,7 @@ async function login() {
     localStorage.setItem('role', user.role)
     localStorage.setItem('username', user.username || user.student_id || account.value.trim())
     if (!remember.value) sessionStorage.setItem('session_only', 'true')
-    const destination = user.role === 'student' ? '/exam/1' : '/teacher/dashboard'
+    const destination = user.role === 'student' ? '/exam/10000000-0000-0000-0000-000000000001' : '/teacher/dashboard'
     await router.replace(destination)
   } catch (error: any) {
     console.error('[登录异常]', error.response || error)
