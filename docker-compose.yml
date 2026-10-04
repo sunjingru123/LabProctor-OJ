@@ -17,7 +17,7 @@ services:
     environment:
       DATABASE_URL: postgres://labproctor:${POSTGRES_PASSWORD:-change-me}@postgres:5432/labproctor?sslmode=disable
       REDIS_URL: redis://redis:6379/0
-      JWT_SECRET: ${JWT_SECRET:-replace-with-32-byte-secret}
+      JWT_SECRET: ${JWT_SECRET:-replace-with-at-least-32-byte-secret}
       HTTP_ADDR: :8080
     ports: ["8080:8080"]
     depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}}
