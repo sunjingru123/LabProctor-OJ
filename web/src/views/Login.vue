@@ -12,6 +12,7 @@ const errorMessage = ref('')
 const loading = ref(false)
 
 async function login() {
+  localStorage.clear()
   errorMessage.value = ''
   if (!account.value.trim() || !password.value) {
     errorMessage.value = '请输入学号/工号和密码'

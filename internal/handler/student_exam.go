@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -23,9 +24,9 @@ func (h *StudentExam) Detail(c *gin.Context) {
 	now := time.Now(); response := gin.H{"exam_id": id, "title": title, "status": status, "start_time": starts, "end_time": ends, "server_time": now}
 	response["student_id"] = studentNumber; response["student_name"] = studentName; response["client_ip"] = c.ClientIP(); response["network_verified"] = true
 	if now.Before(starts) || status == "draft" || status == "pending" { response["questions"] = []gin.H{}; response["remaining_seconds"] = int(starts.Sub(now).Seconds()); response["waiting"] = true; c.JSON(http.StatusOK, response); return }
-	rows, err := h.DB.Query(c, `SELECT q.id,q.ordinal,q.title,q.statement,q.time_limit_ms,q.memory_limit_kb,q.max_score,q.template_code,q.student_start_marker,q.student_end_marker FROM questions q JOIN exam_participants ep ON ep.exam_id=q.exam_id WHERE q.exam_id=$1 AND ep.student_id=$2 ORDER BY q.ordinal`, id, p.UserID)
+	rows, err := h.DB.Query(c, `SELECT q.id,q.ordinal,q.title,q.statement,q.time_limit_ms,q.memory_limit_kb,q.max_score,q.template_code,q.student_start_marker,q.student_end_marker,(SELECT COALESCE(jsonb_agg(jsonb_build_object('input',tc.input_data,'output',tc.expected_output) ORDER BY tc.ordinal),'[]'::jsonb)::text FROM test_cases tc WHERE tc.question_id=q.id AND tc.is_sample=true) FROM questions q JOIN exam_participants ep ON ep.exam_id=q.exam_id WHERE q.exam_id=$1 AND ep.student_id=$2 ORDER BY q.ordinal`, id, p.UserID)
 	if err != nil { fail(c, 500, err); return }; defer rows.Close(); out := []gin.H{}
-	for rows.Next() { var qid uuid.UUID; var ordinal, timeLimit, memoryKB int; var questionTitle, statement, template, start, end string; var score float64; if err = rows.Scan(&qid, &ordinal, &questionTitle, &statement, &timeLimit, &memoryKB, &score, &template, &start, &end); err != nil { fail(c, 500, err); return }; out = append(out, gin.H{"id": qid, "ordinal": ordinal, "title": questionTitle, "statement": statement, "time_limit_ms": timeLimit, "memory_limit_kb": memoryKB, "max_score": score, "editor_code": editable(template, start, end)}) }
+	for rows.Next() { var qid uuid.UUID; var ordinal, timeLimit, memoryKB int; var questionTitle, statement, template, start, end, sampleJSON string; var score float64; if err = rows.Scan(&qid, &ordinal, &questionTitle, &statement, &timeLimit, &memoryKB, &score, &template, &start, &end, &sampleJSON); err != nil { fail(c, 500, err); return }; var samples []gin.H; _ = json.Unmarshal([]byte(sampleJSON), &samples); out = append(out, gin.H{"id": qid, "ordinal": ordinal, "title": questionTitle, "statement": statement, "time_limit_ms": timeLimit, "memory_limit_kb": memoryKB, "max_score": score, "editor_code": editable(template, start, end), "test_cases": samples}) }
 	response["questions"] = out; response["remaining_seconds"] = maxSeconds(ends.Sub(now)); response["waiting"] = false; c.JSON(http.StatusOK, response)
 }
 

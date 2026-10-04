@@ -198,8 +198,43 @@ function downloadStudentTemplate() { downloadText('labproctor-student-template.c
 
     <div v-if="privilegeModal" class="modal-backdrop" @click.self="privilegeModal = false"><form class="modal compact" @submit.prevent="savePrivileges"><header><div><p class="eyebrow">CANDIDATE PRIVILEGE</p><h2>配置考生特权</h2></div><button type="button" class="close" @click="privilegeModal = false">×</button></header><p v-if="privilegeStudent"><strong>{{ privilegeStudent.name }}</strong> · {{ privilegeStudent.student_id }}</p><label>个人考试延时（分钟）<input v-model.number="privilegeForm.extra_minutes" type="number" min="0" required></label><label class="toggle"><input v-model="privilegeForm.ip_exempt" type="checkbox"> 机房 IP 豁免</label><footer><button type="button" class="secondary" @click="privilegeModal = false">取消</button><button type="submit" class="primary">保存配置</button></footer></form></div>
 
-    <div v-if="previewQuestion" class="modal-backdrop" @click.self="previewQuestion = null"><section class="modal preview"><header><div><p class="eyebrow">QUESTION PREVIEW</p><h2>{{ previewQuestion.title }}</h2></div><button class="close" @click="previewQuestion = null">×</button></header><dl><dt>题号 / 满分</dt><dd>{{ previewQuestion.ordinal }} / {{ previewQuestion.max_score }}</dd><dt>时空限制</dt><dd>{{ previewQuestion.time_limit_ms }} ms / {{ previewQuestion.memory_limit_mb }} MB</dd></dl><p class="statement">{{ previewQuestion.statement }}</p><pre v-if="previewQuestion.template_code">{{ previewQuestion.template_code }}</pre><footer><button class="primary" @click="previewQuestion = null">关闭预览</button></footer></section></div>
-    <div v-if="examModal" class="modal-backdrop" @click.self="examModal = false"><form class="modal compact" @submit.prevent="saveExam"><header><div><p class="eyebrow">EXAM SCHEDULING</p><h2>{{ editingExam ? '修改考试设置与时间' : '创建新考试' }}</h2></div><button type="button" class="close" @click="examModal = false">×</button></header><label>考试名称<input v-model.trim="examForm.title" required maxlength="255" placeholder="例如：2026 秋季程序设计考试"></label><label>开始时间<input v-model="examForm.start_time" type="datetime-local" required></label><label>截止时间<input v-model="examForm.end_time" type="datetime-local" required></label><label>机房 IP CIDR 白名单<small>每行一个网段，也支持逗号分隔。</small><textarea v-model="examForm.ip_whitelist" rows="4" placeholder="192.168.0.0/16&#10;127.0.0.1/32"></textarea><label class="toggle"><input v-model="examForm.manual_review" type="checkbox"> 开启人工复核</label><footer><button type="button" class="secondary" @click="examModal = false">取消</button><button type="submit" class="primary">保存考试设置</button></footer></form></div>
+    <div v-if="previewQuestion" class="modal-backdrop" @click.self="previewQuestion = null">
+      <section class="modal preview">
+        <header>
+          <div><p class="eyebrow">QUESTION PREVIEW</p><h2>{{ previewQuestion.title }}</h2></div>
+          <button type="button" class="close" @click="previewQuestion = null">×</button>
+        </header>
+        <dl>
+          <dt>题号 / 满分</dt><dd>{{ previewQuestion.ordinal }} / {{ previewQuestion.max_score }}</dd>
+          <dt>时空限制</dt><dd>{{ previewQuestion.time_limit_ms }} ms / {{ previewQuestion.memory_limit_mb }} MB</dd>
+        </dl>
+        <p class="statement">{{ previewQuestion.statement }}</p>
+        <pre v-if="previewQuestion.template_code">{{ previewQuestion.template_code }}</pre>
+        <footer><button type="button" class="primary" @click="previewQuestion = null">关闭预览</button></footer>
+      </section>
+    </div>
+
+    <div v-if="examModal" class="modal-backdrop" @click.self="examModal = false">
+      <form class="modal compact" @submit.prevent="saveExam">
+        <header>
+          <div><p class="eyebrow">EXAM SCHEDULING</p><h2>{{ editingExam ? '修改考试设置与时间' : '创建新考试' }}</h2></div>
+          <button type="button" class="close" @click="examModal = false">×</button>
+        </header>
+        <label>考试名称<input v-model.trim="examForm.title" required maxlength="255" placeholder="例如：2026 秋季程序设计考试"></label>
+        <label>开始时间<input v-model="examForm.start_time" type="datetime-local" required></label>
+        <label>截止时间<input v-model="examForm.end_time" type="datetime-local" required></label>
+        <label>
+          机房 IP CIDR 白名单
+          <small>每行一个网段，也支持逗号分隔。</small>
+          <textarea v-model="examForm.ip_whitelist" rows="4" placeholder="192.168.0.0/16&#10;127.0.0.1/32"></textarea>
+        </label>
+        <label class="toggle"><input v-model="examForm.manual_review" type="checkbox"> 开启人工复核</label>
+        <footer>
+          <button type="button" class="secondary" @click="examModal = false">取消</button>
+          <button type="submit" class="primary">保存考试设置</button>
+        </footer>
+      </form>
+    </div>
   </main>
 </template>
 
