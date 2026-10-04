@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -9,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/sunjingru123/LabProctor-OJ/internal/middleware"
 	"github.com/sunjingru123/LabProctor-OJ/internal/service"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -42,15 +45,15 @@ type participantInput struct {
 }
 
 func (h *TeacherExam) List(c *gin.Context) {
-	rows, err := h.DB.Query(c, `SELECT id,title,status::text FROM exams ORDER BY starts_at DESC`)
+	rows, err := h.DB.Query(c, `SELECT id,title,status::text,starts_at,ends_at,ip_allowlist::text[],require_manual_review FROM exams ORDER BY starts_at DESC`)
 	if err != nil { fail(c, 500, err); return }
 	defer rows.Close()
 	out := []gin.H{}
 	for rows.Next() {
 		var id uuid.UUID
-		var title, status string
-		if err = rows.Scan(&id, &title, &status); err != nil { fail(c, 500, err); return }
-		out = append(out, gin.H{"id": id, "title": title, "status": status})
+		var title, status string; var starts, ends time.Time; var ips []string; var manualReview bool
+		if err = rows.Scan(&id, &title, &status, &starts, &ends, &ips, &manualReview); err != nil { fail(c, 500, err); return }
+		out = append(out, gin.H{"id": id, "title": title, "status": status, "start_time": starts, "end_time": ends, "ip_whitelist": ips, "manual_review": manualReview})
 	}
 	c.JSON(http.StatusOK, out)
 }
@@ -191,7 +194,51 @@ func (h *TeacherExam) UpdateParticipant(c *gin.Context) {
 }
 
 func (h *TeacherExam) Create(c *gin.Context) {
-	var in struct { Title string `json:"title"`; Starts, Ends time.Time `json:"starts_at"`; IP []string `json:"ip_allowlist"` }
-	if c.ShouldBindJSON(&in) != nil || in.Title == "" || in.Ends.Before(in.Starts) || !in.Ends.After(time.Now()) { fail(c, 400, "invalid exam window"); return }
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "exam creation repository wiring required"})
+	var in examSettingsInput
+	if c.ShouldBindJSON(&in) != nil { fail(c, 400, "考试设置格式不正确"); return }
+	if err := validateExamSettings(in); err != nil { fail(c, 400, err.Error()); return }
+	actor, err := middleware.PrincipalFrom(c); if err != nil { fail(c, 401, "教师身份无效"); return }
+	var id uuid.UUID
+	err = h.DB.QueryRow(c, `INSERT INTO exams(title,status,starts_at,ends_at,ip_allowlist,require_manual_review,created_by) VALUES($1,'draft',$2,$3,$4::cidr[],$5,$6) RETURNING id`, strings.TrimSpace(in.Title), in.Starts, in.Ends, in.IPWhitelist, in.ManualReview, actor.UserID).Scan(&id)
+	if err != nil { fail(c, 500, err); return }
+	c.JSON(http.StatusCreated, gin.H{"id": id})
+}
+
+type examSettingsInput struct {
+	Title string `json:"title"`
+	Starts time.Time `json:"start_time"`
+	Ends time.Time `json:"end_time"`
+	IPWhitelist []string `json:"ip_whitelist"`
+	ManualReview bool `json:"manual_review"`
+}
+
+func validateExamSettings(in examSettingsInput) error {
+	if strings.TrimSpace(in.Title) == "" { return fmt.Errorf("考试名称不能为空") }
+	if in.Starts.IsZero() || in.Ends.IsZero() || !in.Starts.Before(in.Ends) { return fmt.Errorf("开始时间必须早于截止时间") }
+	for _, raw := range in.IPWhitelist { if _, _, err := net.ParseCIDR(strings.TrimSpace(raw)); err != nil { return fmt.Errorf("IP 白名单包含无效 CIDR：%s", raw) } }
+	return nil
+}
+
+func (h *TeacherExam) Update(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id")); if err != nil { fail(c, 400, "考试编号无效"); return }
+	var in examSettingsInput
+	if c.ShouldBindJSON(&in) != nil { fail(c, 400, "考试设置格式不正确"); return }
+	if err = validateExamSettings(in); err != nil { fail(c, 400, err.Error()); return }
+	var status string
+	if err = h.DB.QueryRow(c, `SELECT status::text FROM exams WHERE id=$1`, id).Scan(&status); err != nil { fail(c, 404, "考试不存在"); return }
+	if status == "running" || status == "closed" || status == "archived" { fail(c, 400, "考试进行中或已结束，禁止修改关键配置"); return }
+	_, err = h.DB.Exec(c, `UPDATE exams SET title=$2,starts_at=$3,ends_at=$4,ip_allowlist=$5::cidr[],require_manual_review=$6 WHERE id=$1`, id, strings.TrimSpace(in.Title), in.Starts, in.Ends, in.IPWhitelist, in.ManualReview)
+	if err != nil { fail(c, 500, err); return }
+	c.Status(http.StatusNoContent)
+}
+
+func (h *TeacherExam) Start(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id")); if err != nil { fail(c, 400, "考试编号无效"); return }
+	var status string
+	if err = h.DB.QueryRow(c, `SELECT status::text FROM exams WHERE id=$1`, id).Scan(&status); err != nil { fail(c, 404, "考试不存在"); return }
+	if status == "running" { c.JSON(http.StatusOK, gin.H{"status": "running"}); return }
+	if status == "closed" || status == "archived" { fail(c, 400, "考试已结束，无法开始"); return }
+	var starts time.Time
+	if err = h.DB.QueryRow(c, `UPDATE exams SET status='running',starts_at=LEAST(starts_at,now()) WHERE id=$1 RETURNING starts_at`, id).Scan(&starts); err != nil { fail(c, 500, err); return }
+	c.JSON(http.StatusOK, gin.H{"status": "running", "start_time": starts})
 }
