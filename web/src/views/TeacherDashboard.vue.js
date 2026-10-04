@@ -3,11 +3,10 @@ import { useRouter } from 'vue-router';
 import axios from 'axios';
 const router = useRouter();
 const identity = localStorage.getItem('username') || '教师';
-const fallbackExam = '10000000-0000-0000-0000-000000000001';
 const tabs = [{ id: 'monitor', label: '考务监控与成绩归档' }, { id: 'questions', label: '题目管理与导入' }, { id: 'participants', label: '考生范围与名单管理' }];
 const activeTab = ref('monitor');
 const exams = ref([]);
-const selected = ref(fallbackExam);
+const selected = ref('');
 const questions = ref([]);
 const participants = ref([]);
 const loading = ref(false);
@@ -47,14 +46,18 @@ function downloadText(name, content, type = 'text/plain;charset=utf-8') { const 
 async function loadExams() {
     try {
         const { data } = await axios.get('/api/v1/teacher/exams');
-        exams.value = data.length ? data : [{ id: fallbackExam, title: 'LabProctor 模拟考试', status: '进行中' }];
-        if (!exams.value.some((exam) => exam.id === selected.value))
-            selected.value = exams.value[0].id;
+        exams.value = data;
+        if (exams.value.length && !exams.value.some((exam) => exam.id === selected.value))
+            selected.value = selectBestExam(exams.value).id;
     }
     catch {
-        exams.value = [{ id: fallbackExam, title: 'LabProctor 模拟考试', status: '进行中' }];
+        exams.value = [];
     }
 }
+function selectBestExam(list) { const now = Date.now(); const running = list.filter((exam) => ['running', 'ongoing'].includes(exam.status)); if (running.length)
+    return running[0]; const upcoming = list.filter((exam) => ['published', 'pending'].includes(exam.status) && (!exam.end_time || Date.parse(exam.end_time) > now)).sort((a, b) => Date.parse(a.start_time || '') - Date.parse(b.start_time || '')); if (upcoming.length)
+    return upcoming[0]; const drafts = list.filter((exam) => exam.status === 'draft').sort((a, b) => Date.parse(b.start_time || '') - Date.parse(a.start_time || '')); if (drafts.length)
+    return drafts[0]; return [...list].sort((a, b) => Date.parse(b.end_time || '') - Date.parse(a.end_time || ''))[0]; }
 function openCreateExam() { editingExam.value = null; examForm.value = { title: '', start_time: '', end_time: '', ip_whitelist: '127.0.0.1/32\n192.168.0.0/16', manual_review: false }; examModal.value = true; }
 function openEditExam() { if (!canEditExam.value) {
     notify('考试已启动，核心时间与白名单已锁定禁止修改');
@@ -98,6 +101,11 @@ catch (error) {
     notify(apiError(error, '考试发布失败。'));
 } }
 async function loadResources() {
+    if (!selected.value) {
+        questions.value = [];
+        participants.value = [];
+        return;
+    }
     loading.value = true;
     try {
         const [questionResponse, participantResponse] = await Promise.all([
@@ -357,48 +365,64 @@ __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElement
     ...{ onClick: (__VLS_ctx.logout) },
     ...{ class: "text-button" },
 });
-__VLS_asFunctionalElement(__VLS_intrinsicElements.section, __VLS_intrinsicElements.section)({
-    ...{ class: "exam-bar" },
-});
-__VLS_asFunctionalElement(__VLS_intrinsicElements.label, __VLS_intrinsicElements.label)({});
-__VLS_asFunctionalElement(__VLS_intrinsicElements.select, __VLS_intrinsicElements.select)({
-    value: (__VLS_ctx.selected),
-});
-for (const [exam] of __VLS_getVForSourceType((__VLS_ctx.exams))) {
-    __VLS_asFunctionalElement(__VLS_intrinsicElements.option, __VLS_intrinsicElements.option)({
-        key: (exam.id),
-        value: (exam.id),
+if (!__VLS_ctx.exams.length) {
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.section, __VLS_intrinsicElements.section)({
+        ...{ class: "empty-exams" },
     });
-    (exam.title);
-    (__VLS_ctx.labelForStatus(exam.status));
-}
-__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "exam-actions" },
-});
-__VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
-    ...{ onClick: (__VLS_ctx.openCreateExam) },
-    ...{ class: "secondary" },
-});
-__VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
-    ...{ onClick: (__VLS_ctx.openEditExam) },
-    ...{ class: "secondary" },
-});
-if (__VLS_ctx.selectedExam?.status === 'draft') {
-    __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
-        ...{ onClick: (__VLS_ctx.publishExam) },
-        ...{ class: "secondary" },
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({
+        ...{ class: "eyebrow" },
     });
-}
-if (__VLS_ctx.canEditExam) {
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.h2, __VLS_intrinsicElements.h2)({});
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({});
     __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
-        ...{ onClick: (__VLS_ctx.startExam) },
+        ...{ onClick: (__VLS_ctx.openCreateExam) },
         ...{ class: "primary" },
     });
 }
-if (__VLS_ctx.loading) {
-    __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
-        ...{ class: "loading" },
+else {
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.section, __VLS_intrinsicElements.section)({
+        ...{ class: "exam-bar" },
     });
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.label, __VLS_intrinsicElements.label)({});
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.select, __VLS_intrinsicElements.select)({
+        value: (__VLS_ctx.selected),
+    });
+    for (const [exam] of __VLS_getVForSourceType((__VLS_ctx.exams))) {
+        __VLS_asFunctionalElement(__VLS_intrinsicElements.option, __VLS_intrinsicElements.option)({
+            key: (exam.id),
+            value: (exam.id),
+        });
+        (exam.title);
+        (__VLS_ctx.labelForStatus(exam.status));
+    }
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+        ...{ class: "exam-actions" },
+    });
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
+        ...{ onClick: (__VLS_ctx.openCreateExam) },
+        ...{ class: "secondary" },
+    });
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
+        ...{ onClick: (__VLS_ctx.openEditExam) },
+        ...{ class: "secondary" },
+    });
+    if (__VLS_ctx.selectedExam?.status === 'draft') {
+        __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
+            ...{ onClick: (__VLS_ctx.publishExam) },
+            ...{ class: "secondary" },
+        });
+    }
+    if (__VLS_ctx.canEditExam) {
+        __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
+            ...{ onClick: (__VLS_ctx.startExam) },
+            ...{ class: "primary" },
+        });
+    }
+    if (__VLS_ctx.loading) {
+        __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
+            ...{ class: "loading" },
+        });
+    }
 }
 if (__VLS_ctx.selectedExam) {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.section, __VLS_intrinsicElements.section)({
@@ -441,7 +465,7 @@ for (const [tab] of __VLS_getVForSourceType((__VLS_ctx.tabs))) {
     });
     (tab.label);
 }
-if (__VLS_ctx.activeTab === 'monitor') {
+if (__VLS_ctx.exams.length && __VLS_ctx.activeTab === 'monitor') {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.section, __VLS_intrinsicElements.section)({
         ...{ class: "panel monitor" },
     });
@@ -488,7 +512,7 @@ if (__VLS_ctx.activeTab === 'monitor') {
     var __VLS_7;
     __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
         ...{ onClick: (...[$event]) => {
-                if (!(__VLS_ctx.activeTab === 'monitor'))
+                if (!(__VLS_ctx.exams.length && __VLS_ctx.activeTab === 'monitor'))
                     return;
                 __VLS_ctx.download('sources.zip');
             } },
@@ -497,7 +521,7 @@ if (__VLS_ctx.activeTab === 'monitor') {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.small, __VLS_intrinsicElements.small)({});
     __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
         ...{ onClick: (...[$event]) => {
-                if (!(__VLS_ctx.activeTab === 'monitor'))
+                if (!(__VLS_ctx.exams.length && __VLS_ctx.activeTab === 'monitor'))
                     return;
                 __VLS_ctx.download('grades.xlsx');
             } },
@@ -506,7 +530,7 @@ if (__VLS_ctx.activeTab === 'monitor') {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.small, __VLS_intrinsicElements.small)({});
     __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
         ...{ onClick: (...[$event]) => {
-                if (!(__VLS_ctx.activeTab === 'monitor'))
+                if (!(__VLS_ctx.exams.length && __VLS_ctx.activeTab === 'monitor'))
                     return;
                 __VLS_ctx.download('screen-logs.xlsx');
             } },
@@ -517,7 +541,7 @@ if (__VLS_ctx.activeTab === 'monitor') {
         ...{ class: "hint" },
     });
 }
-if (__VLS_ctx.activeTab === 'questions') {
+if (__VLS_ctx.exams.length && __VLS_ctx.activeTab === 'questions') {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.section, __VLS_intrinsicElements.section)({
         ...{ class: "panel" },
     });
@@ -534,7 +558,7 @@ if (__VLS_ctx.activeTab === 'questions') {
     });
     __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
         ...{ onClick: (...[$event]) => {
-                if (!(__VLS_ctx.activeTab === 'questions'))
+                if (!(__VLS_ctx.exams.length && __VLS_ctx.activeTab === 'questions'))
                     return;
                 __VLS_ctx.questionImportModal = true;
             } },
@@ -590,21 +614,21 @@ if (__VLS_ctx.activeTab === 'questions') {
         });
         __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
             ...{ onClick: (...[$event]) => {
-                    if (!(__VLS_ctx.activeTab === 'questions'))
+                    if (!(__VLS_ctx.exams.length && __VLS_ctx.activeTab === 'questions'))
                         return;
                     __VLS_ctx.previewQuestion = question;
                 } },
         });
         __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
             ...{ onClick: (...[$event]) => {
-                    if (!(__VLS_ctx.activeTab === 'questions'))
+                    if (!(__VLS_ctx.exams.length && __VLS_ctx.activeTab === 'questions'))
                         return;
                     __VLS_ctx.editQuestion(question);
                 } },
         });
         __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
             ...{ onClick: (...[$event]) => {
-                    if (!(__VLS_ctx.activeTab === 'questions'))
+                    if (!(__VLS_ctx.exams.length && __VLS_ctx.activeTab === 'questions'))
                         return;
                     __VLS_ctx.deleteQuestion(question);
                 } },
@@ -612,7 +636,7 @@ if (__VLS_ctx.activeTab === 'questions') {
         });
     }
 }
-if (__VLS_ctx.activeTab === 'participants') {
+if (__VLS_ctx.exams.length && __VLS_ctx.activeTab === 'participants') {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.section, __VLS_intrinsicElements.section)({
         ...{ class: "panel" },
     });
@@ -626,7 +650,7 @@ if (__VLS_ctx.activeTab === 'participants') {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.h2, __VLS_intrinsicElements.h2)({});
     __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
         ...{ onClick: (...[$event]) => {
-                if (!(__VLS_ctx.activeTab === 'participants'))
+                if (!(__VLS_ctx.exams.length && __VLS_ctx.activeTab === 'participants'))
                     return;
                 __VLS_ctx.participantImportModal = true;
             } },
@@ -675,7 +699,7 @@ if (__VLS_ctx.activeTab === 'participants') {
         });
         __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
             ...{ onClick: (...[$event]) => {
-                    if (!(__VLS_ctx.activeTab === 'participants'))
+                    if (!(__VLS_ctx.exams.length && __VLS_ctx.activeTab === 'participants'))
                         return;
                     __VLS_ctx.configurePrivileges(student);
                 } },
@@ -1128,6 +1152,9 @@ if (__VLS_ctx.examModal) {
 /** @type {__VLS_StyleScopedClasses['subtitle']} */ ;
 /** @type {__VLS_StyleScopedClasses['identity']} */ ;
 /** @type {__VLS_StyleScopedClasses['text-button']} */ ;
+/** @type {__VLS_StyleScopedClasses['empty-exams']} */ ;
+/** @type {__VLS_StyleScopedClasses['eyebrow']} */ ;
+/** @type {__VLS_StyleScopedClasses['primary']} */ ;
 /** @type {__VLS_StyleScopedClasses['exam-bar']} */ ;
 /** @type {__VLS_StyleScopedClasses['exam-actions']} */ ;
 /** @type {__VLS_StyleScopedClasses['secondary']} */ ;

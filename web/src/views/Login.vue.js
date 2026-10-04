@@ -28,7 +28,12 @@ async function login() {
         localStorage.setItem('username', user.username || user.student_id || account.value.trim());
         if (!remember.value)
             sessionStorage.setItem('session_only', 'true');
-        const destination = user.role === 'student' ? '/exam/10000000-0000-0000-0000-000000000001' : '/teacher/dashboard';
+        let destination = '/teacher/dashboard';
+        if (user.role === 'student') {
+            const { data: exams } = await axios.get('/api/v1/student/my-exams');
+            const available = exams.filter((exam) => ['running', 'published', 'pending'].includes(exam.status));
+            destination = available.length ? `/exam/${available[0].id}` : '/exam/none';
+        }
         await router.replace(destination);
     }
     catch (error) {

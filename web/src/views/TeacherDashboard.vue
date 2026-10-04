@@ -11,11 +11,10 @@ type QuestionForm = { title: string; statement: string; max_score: number; time_
 
 const router = useRouter()
 const identity = localStorage.getItem('username') || '教师'
-const fallbackExam = '10000000-0000-0000-0000-000000000001'
 const tabs = [{ id: 'monitor', label: '考务监控与成绩归档' }, { id: 'questions', label: '题目管理与导入' }, { id: 'participants', label: '考生范围与名单管理' }] as const
 const activeTab = ref<(typeof tabs)[number]['id']>('monitor')
 const exams = ref<Exam[]>([])
-const selected = ref(fallbackExam)
+const selected = ref('')
 const questions = ref<Question[]>([])
 const participants = ref<Participant[]>([])
 const loading = ref(false)
@@ -56,10 +55,11 @@ function downloadText(name: string, content: string, type = 'text/plain;charset=
 async function loadExams() {
   try {
     const { data } = await axios.get<Exam[]>('/api/v1/teacher/exams')
-    exams.value = data.length ? data : [{ id: fallbackExam, title: 'LabProctor 模拟考试', status: '进行中' }]
-    if (!exams.value.some((exam) => exam.id === selected.value)) selected.value = exams.value[0].id
-  } catch { exams.value = [{ id: fallbackExam, title: 'LabProctor 模拟考试', status: '进行中' }] }
+    exams.value = data
+    if (exams.value.length && !exams.value.some((exam) => exam.id === selected.value)) selected.value = selectBestExam(exams.value).id
+  } catch { exams.value = [] }
 }
+function selectBestExam(list: Exam[]) { const now = Date.now(); const running = list.filter((exam) => ['running', 'ongoing'].includes(exam.status)); if (running.length) return running[0]; const upcoming = list.filter((exam) => ['published', 'pending'].includes(exam.status) && (!exam.end_time || Date.parse(exam.end_time) > now)).sort((a, b) => Date.parse(a.start_time || '') - Date.parse(b.start_time || '')); if (upcoming.length) return upcoming[0]; const drafts = list.filter((exam) => exam.status === 'draft').sort((a, b) => Date.parse(b.start_time || '') - Date.parse(a.start_time || '')); if (drafts.length) return drafts[0]; return [...list].sort((a, b) => Date.parse(b.end_time || '') - Date.parse(a.end_time || ''))[0] }
 function openCreateExam() { editingExam.value = null; examForm.value = { title: '', start_time: '', end_time: '', ip_whitelist: '127.0.0.1/32\n192.168.0.0/16', manual_review: false }; examModal.value = true }
 function openEditExam() { if (!canEditExam.value) { notify('考试已启动，核心时间与白名单已锁定禁止修改'); return }; if (!selectedExam.value) return; editingExam.value = selectedExam.value; examForm.value = { title: selectedExam.value.title, start_time: toLocalInput(selectedExam.value.start_time), end_time: toLocalInput(selectedExam.value.end_time), ip_whitelist: (selectedExam.value.ip_whitelist || []).join('\n'), manual_review: Boolean(selectedExam.value.manual_review) }; examModal.value = true }
 function validExamForm() { return examForm.value.title.trim() && examForm.value.start_time && examForm.value.end_time && new Date(examForm.value.start_time) < new Date(examForm.value.end_time) }
@@ -67,6 +67,7 @@ async function saveExam() { if (!validExamForm()) { notify('请填写考试名�
 async function startExam() { if (!selectedExam.value || !canEditExam.value) return; if (!window.confirm('立即开始考试？开始后核心时间与白名单将锁定。')) return; try { await axios.post(`/api/v1/teacher/exams/${selected.value}/start`); await loadExams(); notify('考试已开始，考生可进入答题。') } catch (error) { notify(apiError(error, '考试启动失败。')) } }
 async function publishExam() { if (!selectedExam.value || selectedExam.value.status !== 'draft') return; try { await axios.post(`/api/v1/teacher/exams/${selected.value}/publish`); await loadExams(); notify('考试已发布为待开始状态。') } catch (error) { notify(apiError(error, '考试发布失败。')) } }
 async function loadResources() {
+  if (!selected.value) { questions.value = []; participants.value = []; return }
   loading.value = true
   try {
     const [questionResponse, participantResponse] = await Promise.all([
@@ -169,22 +170,23 @@ function downloadStudentTemplate() { downloadText('labproctor-student-template.c
       <div class="identity">教师：{{ identity }} <button class="text-button" @click="logout">退出登录</button></div>
     </header>
 
-    <section class="exam-bar"><label>当前考试<select v-model="selected"><option v-for="exam in exams" :key="exam.id" :value="exam.id">{{ exam.title }} · {{ labelForStatus(exam.status) }}</option></select></label><div class="exam-actions"><button class="secondary" @click="openCreateExam">＋ 创建新考试</button><button class="secondary" @click="openEditExam">⚙️ 修改考试设置与时间</button><button v-if="selectedExam?.status === 'draft'" class="secondary" @click="publishExam">🚀 发布考试</button><button v-if="canEditExam" class="primary" @click="startExam">▶️ 立即开始考试</button></div><span v-if="loading" class="loading">正在同步数据…</span></section>
+    <section v-if="!exams.length" class="empty-exams"><p class="eyebrow">EXAM SCHEDULE</p><h2>当前暂无任何考务排期</h2><p>您可以立即创建一场全新的机房考试并编排题目与考生。</p><button class="primary" @click="openCreateExam">＋ 创建第一场考试</button></section>
+    <section v-else class="exam-bar"><label>当前考试<select v-model="selected"><option v-for="exam in exams" :key="exam.id" :value="exam.id">{{ exam.title }} · {{ labelForStatus(exam.status) }}</option></select></label><div class="exam-actions"><button class="secondary" @click="openCreateExam">＋ 创建新考试</button><button class="secondary" @click="openEditExam">⚙️ 修改考试设置与时间</button><button v-if="selectedExam?.status === 'draft'" class="secondary" @click="publishExam">🚀 发布考试</button><button v-if="canEditExam" class="primary" @click="startExam">▶️ 立即开始考试</button></div><span v-if="loading" class="loading">正在同步数据…</span></section>
     <section v-if="selectedExam" class="schedule-card"><div><span>考场状态</span><strong :class="['status-pill', selectedExam.status]">{{ statusLabel }}</strong></div><div><span>开始时间</span><strong>{{ formattedStart }}</strong></div><div><span>截止时间</span><strong>{{ formattedEnd }}</strong></div><div><span>机房 IP 白名单</span><strong>{{ whitelist }}</strong></div><div><span>人工复核</span><strong>{{ selectedExam.manual_review ? '已开启' : '未开启' }}</strong></div></section>
     <nav class="tabs" aria-label="教师考务模块"><button v-for="tab in tabs" :key="tab.id" :class="{ active: activeTab === tab.id }" @click="activeTab = tab.id">{{ tab.label }}</button></nav>
 
-    <section v-if="activeTab === 'monitor'" class="panel monitor">
+    <section v-if="exams.length && activeTab === 'monitor'" class="panel monitor">
       <div class="section-title"><div><p class="eyebrow">01 / LIVE & ARCHIVE</p><h2>考务监控与成绩归档</h2></div><span class="exam-chip">{{ examTitle }}</span></div>
       <div class="quick-actions"><RouterLink class="primary" :to="`/teacher/exams/${selected}/proctor`">🖥️ 进入实时监考大屏</RouterLink><RouterLink class="secondary" :to="`/teacher/exams/${selected}/review`">📝 进入人工阅卷复核</RouterLink><button class="secondary" @click="download('sources.zip')">📥 导出学生纯源码 <small>ZIP，不含模板</small></button><button class="secondary" @click="download('grades.xlsx')">📊 导出全场成绩单 <small>Excel</small></button><button class="secondary" @click="download('screen-logs.xlsx')">📋 导出切屏作弊明细 <small>Excel</small></button></div>
       <p class="hint">导出文件根据当前选择的考试生成；人工调整成绩后可重新导出成绩单。</p>
     </section>
 
-    <section v-if="activeTab === 'questions'" class="panel">
+    <section v-if="exams.length && activeTab === 'questions'" class="panel">
       <div class="section-title"><div><p class="eyebrow">02 / QUESTION BANK</p><h2>题目管理与导入</h2></div><div class="toolbar"><button class="secondary" @click="questionImportModal = true">📥 批量导入题目</button><button class="primary" @click="openNewQuestion">＋ 手动新增单题</button></div></div>
       <div class="table-wrap"><table><thead><tr><th>题号</th><th>名称</th><th>满分</th><th>时空限制</th><th>模板</th><th>操作</th></tr></thead><tbody><tr v-if="!questions.length"><td colspan="6" class="empty">尚未配置题目，可新增或批量导入。</td></tr><tr v-for="question in questions" :key="question.id"><td>{{ question.ordinal }}</td><td><strong>{{ question.title }}</strong><small>{{ question.statement }}</small></td><td>{{ question.max_score }}</td><td>{{ question.time_limit_ms }} ms / {{ question.memory_limit_mb }} MB</td><td><span :class="['badge', question.has_template ? 'yes' : 'no']">{{ question.has_template ? '有模板' : '无模板' }}</span></td><td class="row-actions"><button @click="previewQuestion = question">查看预览</button><button @click="editQuestion(question)">编辑</button><button class="danger-text" @click="deleteQuestion(question)">删除</button></td></tr></tbody></table></div>
     </section>
 
-    <section v-if="activeTab === 'participants'" class="panel">
+    <section v-if="exams.length && activeTab === 'participants'" class="panel">
       <div class="section-title"><div><p class="eyebrow">03 / ACCESS CONTROL</p><h2>考生范围与名单管理</h2></div><button class="primary" @click="participantImportModal = true">📥 批量导入学生名单</button></div>
       <div class="table-wrap"><table><thead><tr><th>学号</th><th>姓名</th><th>所属班级</th><th>个人延时</th><th>IP 豁免</th><th>操作</th></tr></thead><tbody><tr v-if="!participants.length"><td colspan="6" class="empty">当前考试暂无考生名单。</td></tr><tr v-for="student in participants" :key="student.id"><td>{{ student.student_id }}</td><td><strong>{{ student.name }}</strong></td><td>{{ student.class_name || '-' }}</td><td>{{ student.extra_minutes ? `${student.extra_minutes} 分钟` : '-' }}</td><td><span :class="['badge', student.ip_exempt ? 'yes' : 'no']">{{ student.ip_exempt ? '已豁免' : '未豁免' }}</span></td><td class="row-actions"><button @click="configurePrivileges(student)">配置考生特权</button></td></tr></tbody></table></div>
     </section>

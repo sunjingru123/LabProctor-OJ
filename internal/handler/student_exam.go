@@ -17,6 +17,14 @@ import (
 
 type StudentExam struct{ DB *pgxpool.Pool; Redis *redis.Client; Drafts *service.DraftService; Submissions *service.SubmissionService }
 
+func (h *StudentExam) MyExams(c *gin.Context) {
+	p, _ := middleware.PrincipalFrom(c)
+	rows, err := h.DB.Query(c, `SELECT e.id,e.title,e.status::text,e.starts_at,e.ends_at FROM exams e JOIN exam_participants ep ON ep.exam_id=e.id WHERE ep.student_id=$1 ORDER BY CASE WHEN e.status='running' THEN 0 WHEN e.status IN ('published','pending') THEN 1 ELSE 2 END, e.starts_at ASC`, p.UserID)
+	if err != nil { fail(c, 500, err); return }; defer rows.Close(); out := []gin.H{}
+	for rows.Next() { var id uuid.UUID; var title, status string; var starts, ends time.Time; if err = rows.Scan(&id, &title, &status, &starts, &ends); err != nil { fail(c, 500, err); return }; out = append(out, gin.H{"id": id, "title": title, "status": status, "start_time": starts, "end_time": ends}) }
+	c.JSON(http.StatusOK, out)
+}
+
 func (h *StudentExam) Detail(c *gin.Context) {
 	p, _ := middleware.PrincipalFrom(c); id := examID(c)
 	var title, status, studentNumber, studentName string; var starts, ends time.Time
