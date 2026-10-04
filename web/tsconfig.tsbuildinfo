@@ -1,0 +1,1 @@
+{"root":["./src/app.vue","./src/main.ts","./src/components/codeeditor.vue","./src/router/index.ts","./src/utils/anticheat.ts","./src/views/examworkspace.vue","./src/views/login.vue","./src/views/proctorview.vue","./src/views/teacherdashboard.vue","./src/views/teacherreview.vue"],"version":"5.9.3"}

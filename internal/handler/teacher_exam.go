@@ -100,6 +100,7 @@ func validateQuestion(in questionInput) bool {
 }
 
 func (h *TeacherExam) CreateQuestion(c *gin.Context) {
+	if !h.examEditable(c) { return }
 	var in questionInput
 	if c.ShouldBindJSON(&in) != nil || !validateQuestion(in) { fail(c, 400, "invalid question"); return }
 	exam := examID(c)
@@ -115,6 +116,7 @@ func (h *TeacherExam) CreateQuestion(c *gin.Context) {
 }
 
 func (h *TeacherExam) UpdateQuestion(c *gin.Context) {
+	if !h.examEditable(c) { return }
 	var in questionInput
 	if c.ShouldBindJSON(&in) != nil || !validateQuestion(in) { fail(c, 400, "invalid question"); return }
 	qid, err := uuid.Parse(c.Param("qid"))
@@ -143,6 +145,7 @@ func replaceCases(c *gin.Context, tx pgx.Tx, qid uuid.UUID, in questionInput) er
 }
 
 func (h *TeacherExam) DeleteQuestion(c *gin.Context) {
+	if !h.examEditable(c) { return }
 	qid, err := uuid.Parse(c.Param("qid")); if err != nil { fail(c, 400, "invalid question id"); return }
 	tag, err := h.DB.Exec(c, `DELETE FROM questions WHERE id=$1 AND exam_id=$2`, qid, examID(c))
 	if err != nil { fail(c, 500, err); return }
@@ -164,6 +167,7 @@ func (h *TeacherExam) Participants(c *gin.Context) {
 }
 
 func (h *TeacherExam) ImportParticipants(c *gin.Context) {
+	if !h.examEditable(c) { return }
 	var in struct { Students []participantInput `json:"students"` }
 	if c.ShouldBindJSON(&in) != nil || len(in.Students) == 0 { fail(c, 400, "student list is required"); return }
 	tx, err := h.DB.Begin(c); if err != nil { fail(c, 500, err); return }; defer tx.Rollback(c)
@@ -184,6 +188,7 @@ func (h *TeacherExam) ImportParticipants(c *gin.Context) {
 }
 
 func (h *TeacherExam) UpdateParticipant(c *gin.Context) {
+	if !h.examEditable(c) { return }
 	student, err := uuid.Parse(c.Param("student_id")); if err != nil { fail(c, 400, "invalid student id"); return }
 	var in struct { ExtraMinutes int `json:"extra_minutes"`; IPExempt bool `json:"ip_exempt"` }
 	if c.ShouldBindJSON(&in) != nil || in.ExtraMinutes < 0 { fail(c, 400, "invalid participant privileges"); return }
@@ -226,10 +231,28 @@ func (h *TeacherExam) Update(c *gin.Context) {
 	if err = validateExamSettings(in); err != nil { fail(c, 400, err.Error()); return }
 	var status string
 	if err = h.DB.QueryRow(c, `SELECT status::text FROM exams WHERE id=$1`, id).Scan(&status); err != nil { fail(c, 404, "考试不存在"); return }
-	if status == "running" || status == "closed" || status == "archived" { fail(c, 400, "考试进行中或已结束，禁止修改关键配置"); return }
+	var starts time.Time
+	if err = h.DB.QueryRow(c, `SELECT starts_at FROM exams WHERE id=$1`, id).Scan(&starts); err != nil { fail(c, 404, "考试不存在"); return }
+	if status == "running" || status == "closed" || status == "archived" || !time.Now().Before(starts) { fail(c, 400, "考试进行中或已结束，禁止修改关键配置"); return }
 	_, err = h.DB.Exec(c, `UPDATE exams SET title=$2,starts_at=$3,ends_at=$4,ip_allowlist=$5::cidr[],require_manual_review=$6 WHERE id=$1`, id, strings.TrimSpace(in.Title), in.Starts, in.Ends, in.IPWhitelist, in.ManualReview)
 	if err != nil { fail(c, 500, err); return }
 	c.Status(http.StatusNoContent)
+}
+
+func (h *TeacherExam) Publish(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id")); if err != nil { fail(c, 400, "考试编号无效"); return }
+	tag, err := h.DB.Exec(c, `UPDATE exams SET status='published' WHERE id=$1 AND status='draft'` , id)
+	if err != nil { fail(c, 500, err); return }
+	if tag.RowsAffected() == 0 { fail(c, 400, "只有草稿考试可以发布"); return }
+	c.JSON(http.StatusOK, gin.H{"status": "published"})
+}
+
+func (h *TeacherExam) examEditable(c *gin.Context) bool {
+	id, err := uuid.Parse(c.Param("id")); if err != nil { fail(c, 400, "考试编号无效"); return false }
+	var status string; var starts time.Time
+	if err = h.DB.QueryRow(c, `SELECT status::text,starts_at FROM exams WHERE id=$1`, id).Scan(&status, &starts); err != nil { fail(c, 404, "考试不存在"); return false }
+	if status == "running" || status == "closed" || status == "archived" || !time.Now().Before(starts) { fail(c, 400, "考试已开始或结束，禁止修改题目与考生范围"); return false }
+	return true
 }
 
 func (h *TeacherExam) Start(c *gin.Context) {

@@ -40,12 +40,12 @@ const selectedExam = computed(() => exams.value.find((exam) => exam.id === selec
 const examTitle = computed(() => selectedExam.value?.title || '当前考试')
 function labelForStatus(status?: string) { return ({ draft: '草稿', published: '待开始', pending: '待开始', running: '进行中', ongoing: '进行中', closed: '已结束', ended: '已结束', archived: '已结束' }[status || 'draft'] || status || '草稿') }
 const statusLabel = computed(() => labelForStatus(selectedExam.value?.status))
-const canEditExam = computed(() => ['draft', 'published', 'pending'].includes(selectedExam.value?.status || ''))
+const canEditExam = computed(() => { const status = selectedExam.value?.status || ''; const beforeStart = !selectedExam.value?.start_time || Date.now() < Date.parse(selectedExam.value.start_time); return ['draft', 'published', 'pending'].includes(status) && beforeStart })
 const formattedStart = computed(() => formatDate(selectedExam.value?.start_time))
 const formattedEnd = computed(() => formatDate(selectedExam.value?.end_time))
 const whitelist = computed(() => selectedExam.value?.ip_whitelist?.join(', ') || '未配置')
 function formatDate(value?: string) { return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') : '—' }
-function toLocalInput(value?: string) { return value ? new Date(value).toISOString().slice(0, 16) : '' }
+function toLocalInput(value?: string) { if (!value) return ''; const date = new Date(value); const pad = (part: number) => String(part).padStart(2, '0'); return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}` }
 
 function notify(message: string) { toast.value = message; window.setTimeout(() => { if (toast.value === message) toast.value = '' }, 3500) }
 function apiError(error: unknown, fallback: string) { return axios.isAxiosError(error) ? error.response?.data?.error || fallback : fallback }
@@ -65,6 +65,7 @@ function openEditExam() { if (!canEditExam.value) { notify('考试已启动，�
 function validExamForm() { return examForm.value.title.trim() && examForm.value.start_time && examForm.value.end_time && new Date(examForm.value.start_time) < new Date(examForm.value.end_time) }
 async function saveExam() { if (!validExamForm()) { notify('请填写考试名称，并确保开始时间早于截止时间。'); return }; const ips = examForm.value.ip_whitelist.split(/[\s,]+/).map((ip) => ip.trim()).filter(Boolean); try { const payload = { title: examForm.value.title.trim(), start_time: new Date(examForm.value.start_time).toISOString(), end_time: new Date(examForm.value.end_time).toISOString(), ip_whitelist: ips, manual_review: examForm.value.manual_review }; if (editingExam.value) await axios.put(`/api/v1/teacher/exams/${editingExam.value.id}`, payload); else await axios.post('/api/v1/teacher/exams', payload); examModal.value = false; await loadExams(); notify(editingExam.value ? '考试设置已保存。' : '考试创建成功。') } catch (error) { notify(apiError(error, '考试设置保存失败。')) } }
 async function startExam() { if (!selectedExam.value || !canEditExam.value) return; if (!window.confirm('立即开始考试？开始后核心时间与白名单将锁定。')) return; try { await axios.post(`/api/v1/teacher/exams/${selected.value}/start`); await loadExams(); notify('考试已开始，考生可进入答题。') } catch (error) { notify(apiError(error, '考试启动失败。')) } }
+async function publishExam() { if (!selectedExam.value || selectedExam.value.status !== 'draft') return; try { await axios.post(`/api/v1/teacher/exams/${selected.value}/publish`); await loadExams(); notify('考试已发布为待开始状态。') } catch (error) { notify(apiError(error, '考试发布失败。')) } }
 async function loadResources() {
   loading.value = true
   try {
@@ -168,7 +169,7 @@ function downloadStudentTemplate() { downloadText('labproctor-student-template.c
       <div class="identity">教师：{{ identity }} <button class="text-button" @click="logout">退出登录</button></div>
     </header>
 
-    <section class="exam-bar"><label>当前考试<select v-model="selected"><option v-for="exam in exams" :key="exam.id" :value="exam.id">{{ exam.title }} · {{ labelForStatus(exam.status) }}</option></select></label><div class="exam-actions"><button class="secondary" @click="openCreateExam">＋ 创建新考试</button><button class="secondary" @click="openEditExam">⚙️ 修改考试设置与时间</button><button v-if="canEditExam" class="primary" @click="startExam">▶️ 立即开始考试</button></div><span v-if="loading" class="loading">正在同步数据…</span></section>
+    <section class="exam-bar"><label>当前考试<select v-model="selected"><option v-for="exam in exams" :key="exam.id" :value="exam.id">{{ exam.title }} · {{ labelForStatus(exam.status) }}</option></select></label><div class="exam-actions"><button class="secondary" @click="openCreateExam">＋ 创建新考试</button><button class="secondary" @click="openEditExam">⚙️ 修改考试设置与时间</button><button v-if="selectedExam?.status === 'draft'" class="secondary" @click="publishExam">🚀 发布考试</button><button v-if="canEditExam" class="primary" @click="startExam">▶️ 立即开始考试</button></div><span v-if="loading" class="loading">正在同步数据…</span></section>
     <section v-if="selectedExam" class="schedule-card"><div><span>考场状态</span><strong :class="['status-pill', selectedExam.status]">{{ statusLabel }}</strong></div><div><span>开始时间</span><strong>{{ formattedStart }}</strong></div><div><span>截止时间</span><strong>{{ formattedEnd }}</strong></div><div><span>机房 IP 白名单</span><strong>{{ whitelist }}</strong></div><div><span>人工复核</span><strong>{{ selectedExam.manual_review ? '已开启' : '未开启' }}</strong></div></section>
     <nav class="tabs" aria-label="教师考务模块"><button v-for="tab in tabs" :key="tab.id" :class="{ active: activeTab === tab.id }" @click="activeTab = tab.id">{{ tab.label }}</button></nav>
 

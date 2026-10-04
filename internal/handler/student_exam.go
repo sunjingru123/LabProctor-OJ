@@ -21,8 +21,9 @@ func (h *StudentExam) Detail(c *gin.Context) {
 	p, _ := middleware.PrincipalFrom(c); id := examID(c)
 	var title, status, studentNumber, studentName string; var starts, ends time.Time
 	if err := h.DB.QueryRow(c, `SELECT e.title,e.status::text,e.starts_at,e.ends_at,COALESCE(u.student_id,''),u.full_name FROM exams e JOIN exam_participants ep ON ep.exam_id=e.id JOIN users u ON u.id=ep.student_id WHERE e.id=$1 AND ep.student_id=$2`, id, p.UserID).Scan(&title, &status, &starts, &ends, &studentNumber, &studentName); err != nil { fail(c, 404, "exam not found or not a participant"); return }
-	now := time.Now(); response := gin.H{"exam_id": id, "title": title, "status": status, "start_time": starts, "end_time": ends, "server_time": now}
-	response["student_id"] = studentNumber; response["student_name"] = studentName; response["client_ip"] = c.ClientIP(); response["network_verified"] = true
+	now := time.Now(); clientIP := c.ClientIP(); response := gin.H{"exam_id": id, "title": title, "status": status, "start_time": starts, "end_time": ends, "server_time": now}
+	response["student_id"] = studentNumber; response["student_name"] = studentName; response["client_ip"] = clientIP; response["network_verified"] = true
+	response["exam"] = gin.H{"id": id, "title": title, "status": status, "start_time": starts, "end_time": ends, "server_time": now}; response["student"] = gin.H{"student_id": studentNumber, "full_name": studentName, "client_ip": clientIP, "ip_whitelisted": true}
 	if now.Before(starts) || status == "draft" || status == "pending" { response["questions"] = []gin.H{}; response["remaining_seconds"] = int(starts.Sub(now).Seconds()); response["waiting"] = true; c.JSON(http.StatusOK, response); return }
 	rows, err := h.DB.Query(c, `SELECT q.id,q.ordinal,q.title,q.statement,q.time_limit_ms,q.memory_limit_kb,q.max_score,q.template_code,q.student_start_marker,q.student_end_marker,(SELECT COALESCE(jsonb_agg(jsonb_build_object('input',tc.input_data,'output',tc.expected_output) ORDER BY tc.ordinal),'[]'::jsonb)::text FROM test_cases tc WHERE tc.question_id=q.id AND tc.is_sample=true) FROM questions q JOIN exam_participants ep ON ep.exam_id=q.exam_id WHERE q.exam_id=$1 AND ep.student_id=$2 ORDER BY q.ordinal`, id, p.UserID)
 	if err != nil { fail(c, 500, err); return }; defer rows.Close(); out := []gin.H{}
